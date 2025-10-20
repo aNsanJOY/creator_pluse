@@ -1,83 +1,112 @@
-import { useState } from 'react'
-import { ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react'
-import { Button } from './ui/Button'
-import { Textarea } from './ui/Textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/Dialog'
-import apiClient from '../services/api'
+import { useState, useEffect } from "react";
+import { ThumbsUp, ThumbsDown, MessageSquare } from "lucide-react";
+import { Button } from "./ui/Button";
+import { Textarea } from "./ui/Textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "./ui/Dialog";
+import apiClient from "../services/api";
 
 interface FeedbackButtonsProps {
-  newsletterId: string
-  sectionId?: string
-  onFeedbackSubmitted?: () => void
-  size?: 'sm' | 'md' | 'lg'
-  showCommentOption?: boolean
+  newsletterId: string;
+  sectionId?: string;
+  onFeedbackSubmitted?: () => void;
+  size?: "sm" | "md" | "lg";
+  showCommentOption?: boolean;
+  selectedFeedbackType: "thumbs_up" | "thumbs_down" | null;
+  user_comment?: string;
 }
 
 export function FeedbackButtons({
   newsletterId,
   sectionId,
   onFeedbackSubmitted,
-  size = 'sm',
-  showCommentOption = true
+  user_comment = "",
+  selectedFeedbackType = null,
+  size = "sm",
+  showCommentOption = true,
 }: FeedbackButtonsProps) {
-  const [feedbackType, setFeedbackType] = useState<'thumbs_up' | 'thumbs_down' | null>(null)
-  const [showCommentDialog, setShowCommentDialog] = useState(false)
-  const [comment, setComment] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [feedbackType, setFeedbackType] = useState<
+    "thumbs_up" | "thumbs_down" | null
+  >(selectedFeedbackType);
+  const [showCommentDialog, setShowCommentDialog] = useState(false);
+  const [comment, setComment] = useState(user_comment);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleFeedback = async (type: 'thumbs_up' | 'thumbs_down', withComment: boolean = false) => {
+  // Sync internal state with prop changes
+  useEffect(() => {
+    setFeedbackType(selectedFeedbackType);
+  }, [selectedFeedbackType]);
+
+  // Sync comment with prop changes
+  useEffect(() => {
+    setComment(user_comment);
+  }, [user_comment]);
+
+  const handleFeedback = async (
+    type: "thumbs_up" | "thumbs_down",
+    withComment: boolean = false
+  ) => {
     if (withComment) {
-      setFeedbackType(type)
-      setShowCommentDialog(true)
-      return
+      setFeedbackType(type);
+      setShowCommentDialog(true);
+      return;
     }
 
-    await submitFeedback(type, '')
-  }
+    await submitFeedback(type, "");
+  };
 
-  const submitFeedback = async (type: 'thumbs_up' | 'thumbs_down', commentText: string) => {
+  const submitFeedback = async (
+    type: "thumbs_up" | "thumbs_down",
+    commentText: string
+  ) => {
     try {
-      setSubmitting(true)
-      setError('')
+      setSubmitting(true);
+      setError("");
 
-      await apiClient.post('/api/feedback', {
+      await apiClient.post("/api/feedback", {
         newsletter_id: newsletterId,
         section_id: sectionId,
         feedback_type: type,
-        comment: commentText || undefined
-      })
+        comment: commentText || undefined,
+      });
 
-      setFeedbackType(type)
-      setShowCommentDialog(false)
-      setComment('')
-      
+      setFeedbackType(type);
+      setShowCommentDialog(false);
+      setComment("");
+
       if (onFeedbackSubmitted) {
-        onFeedbackSubmitted()
+        onFeedbackSubmitted();
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to submit feedback')
+      setError(err.response?.data?.detail || "Failed to submit feedback");
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   const handleCommentSubmit = async () => {
-    if (!feedbackType) return
-    await submitFeedback(feedbackType, comment)
-  }
+    if (!feedbackType) return;
+    await submitFeedback(feedbackType, comment);
+  };
 
-  const buttonSize = size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
-  const iconSize = size === 'sm' ? 16 : size === 'md' ? 20 : 24
+  const buttonSize =
+    size === "sm" ? "h-8 w-8" : size === "md" ? "h-10 w-10" : "h-12 w-12";
+  const iconSize = size === "sm" ? 16 : size === "md" ? 20 : 24;
 
   return (
     <>
       <div className="flex items-center gap-2">
         <Button
-          variant={feedbackType === 'thumbs_up' ? 'default' : 'outline'}
-          size="icon"
+          variant={feedbackType === "thumbs_up" ? "primary" : "outline"}
+          size={size}
           className={buttonSize}
-          onClick={() => handleFeedback('thumbs_up')}
+          onClick={() => handleFeedback("thumbs_up")}
           disabled={submitting}
           title="This is helpful"
         >
@@ -85,10 +114,10 @@ export function FeedbackButtons({
         </Button>
 
         <Button
-          variant={feedbackType === 'thumbs_down' ? 'destructive' : 'outline'}
-          size="icon"
+          variant={feedbackType === "thumbs_down" ? "destructive" : "outline"}
+          size={size}
           className={buttonSize}
-          onClick={() => handleFeedback('thumbs_down')}
+          onClick={() => handleFeedback("thumbs_down")}
           disabled={submitting}
           title="This needs improvement"
         >
@@ -98,11 +127,11 @@ export function FeedbackButtons({
         {showCommentOption && (
           <Button
             variant="ghost"
-            size="icon"
+            size={size}
             className={buttonSize}
             onClick={() => {
-              setFeedbackType(feedbackType || 'thumbs_up')
-              setShowCommentDialog(true)
+              setFeedbackType(feedbackType || "thumbs_up");
+              setShowCommentDialog(true);
             }}
             disabled={submitting}
             title="Add comment"
@@ -112,9 +141,7 @@ export function FeedbackButtons({
         )}
       </div>
 
-      {error && (
-        <p className="text-sm text-red-600 mt-2">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
 
       <Dialog open={showCommentDialog} onOpenChange={setShowCommentDialog}>
         <DialogContent>
@@ -125,7 +152,7 @@ export function FeedbackButtons({
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium mb-2 block">
-                How can we improve this {sectionId ? 'section' : 'draft'}?
+                How can we improve this {sectionId ? "section" : "draft"}?
               </label>
               <Textarea
                 value={comment}
@@ -136,18 +163,16 @@ export function FeedbackButtons({
               />
             </div>
 
-            {error && (
-              <p className="text-sm text-red-600">{error}</p>
-            )}
+            {error && <p className="text-sm text-red-600">{error}</p>}
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => {
-                setShowCommentDialog(false)
-                setComment('')
-                setError('')
+                setShowCommentDialog(false);
+                setComment("");
+                setError("");
               }}
               disabled={submitting}
             >
@@ -157,11 +182,11 @@ export function FeedbackButtons({
               onClick={handleCommentSubmit}
               disabled={submitting || !comment.trim()}
             >
-              {submitting ? 'Submitting...' : 'Submit Feedback'}
+              {submitting ? "Submitting..." : "Submit Feedback"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
-  )
+  );
 }

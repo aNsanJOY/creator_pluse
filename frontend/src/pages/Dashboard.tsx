@@ -457,37 +457,18 @@ export function Dashboard() {
                   </Button>
                 </CardContent>
               </Card>
-              
+
               {/* LLM API Usage Card */}
               <LLMUsageCard />
-              
+
               {/* Crawl Status Card */}
-              <Card className="lg:col-span-2">
+              <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span className="flex items-center gap-2">
                       <RefreshCw className="w-5 h-5 text-indigo-600" />
                       Content Crawl Status
                     </span>
-                    <Button
-                      size="sm"
-                      onClick={handleTriggerCrawl}
-                      disabled={triggeringCrawl || crawlStatus?.is_crawling}
-                      className="flex items-center gap-2"
-                    >
-                      <RefreshCw
-                        className={`w-4 h-4 ${
-                          triggeringCrawl || crawlStatus?.is_crawling
-                            ? "animate-spin"
-                            : ""
-                        }`}
-                      />
-                      {triggeringCrawl
-                        ? "Triggering..."
-                        : crawlStatus?.is_crawling
-                        ? "Crawling..."
-                        : "Crawl All Now"}
-                    </Button>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -525,26 +506,53 @@ export function Dashboard() {
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mt-3">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-gray-600">Total Sources:</span>
-                        <span className="font-medium text-gray-900">{crawlStatus.total}</span>
+                        <span className="font-medium text-gray-900">
+                          {crawlStatus.total}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between text-xs mt-1">
                         <span className="text-gray-600">Active:</span>
-                        <span className="font-medium text-green-600">{crawlStatus.active}</span>
+                        <span className="font-medium text-green-600">
+                          {crawlStatus.active}
+                        </span>
                       </div>
                       {crawlStatus.error > 0 && (
                         <div className="flex items-center justify-between text-xs mt-1">
                           <span className="text-gray-600">Errors:</span>
-                          <span className="font-medium text-red-600">{crawlStatus.error}</span>
+                          <span className="font-medium text-red-600">
+                            {crawlStatus.error}
+                          </span>
                         </div>
                       )}
                       {crawlStatus.last_crawl_duration_seconds && (
                         <div className="flex items-center justify-between text-xs mt-1">
                           <span className="text-gray-600">Last Duration:</span>
-                          <span className="font-medium text-gray-900">{crawlStatus.last_crawl_duration_seconds}s</span>
+                          <span className="font-medium text-gray-900">
+                            {crawlStatus.last_crawl_duration_seconds}s
+                          </span>
                         </div>
                       )}
                     </div>
                   )}
+                  <Button
+                    size="sm"
+                    onClick={handleTriggerCrawl}
+                    disabled={triggeringCrawl || crawlStatus?.is_crawling}
+                    className="flex items-center gap-2 float-right"
+                  >
+                    <RefreshCw
+                      className={`w-4 h-4 ${
+                        triggeringCrawl || crawlStatus?.is_crawling
+                          ? "animate-spin"
+                          : ""
+                      }`}
+                    />
+                    {triggeringCrawl
+                      ? "Triggering..."
+                      : crawlStatus?.is_crawling
+                      ? "Crawling..."
+                      : "Crawl All Now"}
+                  </Button>
                 </CardContent>
               </Card>
             </div>

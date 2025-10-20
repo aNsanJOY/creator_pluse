@@ -2,7 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
+from app.core.logging_config import setup_logging
 from app.services.scheduler import start_scheduler, stop_scheduler
+from app.api.routes import auth, user, sources, youtube, rss, webhooks, newsletters, voice, crawl, trends, content, drafts, feedback, email, dashboard, llm_usage, preferences
+
+# Setup colored logging
+setup_logging(level="INFO", use_colors=True)
+
 
 
 @asynccontextmanager
@@ -52,8 +58,6 @@ async def health_check():
     }
 
 
-# Import and include routers
-from app.api.routes import auth, user, sources, youtube, rss, webhooks, newsletters, voice, crawl, trends, content, drafts, feedback, email, dashboard, preferences, llm_usage
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(user.router, prefix="/api/user", tags=["User"])
@@ -68,7 +72,7 @@ app.include_router(drafts.router, prefix="/api/drafts", tags=["Drafts"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["Feedback"])
 app.include_router(email.router, prefix="/api/email", tags=["Email"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(preferences.router, prefix="/api/preferences", tags=["Preferences"])
+app.include_router(preferences.router, prefix="/api/user", tags=["Preferences"])
 app.include_router(llm_usage.router, prefix="/api/llm/usage", tags=["LLM Usage"])
 
 # Conditionally import Twitter routes if tweepy is available

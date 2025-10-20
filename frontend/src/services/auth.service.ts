@@ -1,11 +1,20 @@
 import apiClient from './api'
 
+export interface User {
+  id: string
+  email: string
+  full_name?: string
+  is_active: boolean
+  created_at: string
+  updated_at?: string
+}
+
 export interface LoginCredentials {
   email: string
   password: string
 }
 
-export interface SignupData {
+export interface SignupCredentials {
   email: string
   password: string
   full_name?: string
@@ -16,41 +25,33 @@ export interface AuthResponse {
   token_type: string
 }
 
-export interface User {
-  id: string
-  email: string
-  full_name?: string
-  is_active: boolean
-  created_at: string
-}
-
 class AuthService {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     const response = await apiClient.post<AuthResponse>('/api/auth/login', credentials)
-    if (response.data.access_token) {
-      localStorage.setItem('access_token', response.data.access_token)
-    }
+    const { access_token } = response.data
+    localStorage.setItem('access_token', access_token)
     return response.data
   }
 
-  async signup(data: SignupData): Promise<AuthResponse> {
-    const response = await apiClient.post<AuthResponse>('/api/auth/signup', data)
-    if (response.data.access_token) {
-      localStorage.setItem('access_token', response.data.access_token)
-    }
+  async signup(credentials: SignupCredentials): Promise<AuthResponse> {
+    const response = await apiClient.post<AuthResponse>('/api/auth/signup', credentials)
+    const { access_token } = response.data
+    localStorage.setItem('access_token', access_token)
     return response.data
   }
 
   async logout(): Promise<void> {
     try {
       await apiClient.post('/api/auth/logout')
+    } catch (error) {
+      console.error('Logout error:', error)
     } finally {
       localStorage.removeItem('access_token')
     }
   }
 
   async getCurrentUser(): Promise<User> {
-    const response = await apiClient.get<User>('/api/user/profile')
+    const response = await apiClient.get<User>('/api/auth/me')
     return response.data
   }
 
@@ -60,23 +61,6 @@ class AuthService {
 
   getToken(): string | null {
     return localStorage.getItem('access_token')
-  }
-
-  async requestPasswordReset(email: string): Promise<{ message: string; reset_token?: string }> {
-    const response = await apiClient.post('/api/auth/reset-password', null, {
-      params: { email }
-    })
-    return response.data
-  }
-
-  async confirmPasswordReset(resetToken: string, newPassword: string): Promise<{ message: string }> {
-    const response = await apiClient.post('/api/auth/reset-password/confirm', null, {
-      params: {
-        reset_token: resetToken,
-        new_password: newPassword
-      }
-    })
-    return response.data
   }
 }
 

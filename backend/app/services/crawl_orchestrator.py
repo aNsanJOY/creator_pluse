@@ -280,14 +280,83 @@ class CrawlOrchestrator:
         }
     
     async def _crawl_youtube_source(self, source: Dict[str, Any]) -> Dict[str, Any]:
-        """Crawl YouTube source (placeholder for now)"""
-        # TODO: Implement YouTube crawling
-        logger.info(f"YouTube crawling not yet implemented for source {source['id']}")
-        return {
-            "status": "partial",
-            "items_fetched": 0,
-            "items_new": 0
-        }
+        """Crawl YouTube source using YouTubeConnector"""
+        from app.services.sources.youtube_connector import YouTubeConnector
+        
+        source_id = source["id"]
+        
+        try:
+            # Initialize YouTube connector
+            connector = YouTubeConnector(
+                source_id=source_id,
+                config=source.get('config', {}),
+                credentials=source.get('credentials', {})
+            )
+            
+            # Validate connection
+            is_valid = await connector.validate_connection()
+            if not is_valid:
+                raise Exception("YouTube connection validation failed")
+            
+            # Update config if it was modified during validation (handle to channel ID conversion)
+            if connector.config != source.get('config', {}):
+                logger.info(f"Updating YouTube source {source_id} config after validation")
+                self.supabase.table("sources").update({
+                    "config": connector.config
+                }).eq("id", source_id).execute()
+            
+            # Determine since timestamp for delta crawl
+            last_crawled_at = source.get('last_crawled_at')
+            since = None
+            if last_crawled_at:
+                if isinstance(last_crawled_at, str):
+                    since = datetime.fromisoformat(last_crawled_at.replace('Z', '+00:00'))
+                else:
+                    since = last_crawled_at
+            
+            # Fetch content
+            contents = await connector.fetch_content(since=since)
+            
+            items_fetched = len(contents)
+            items_new = 0
+            
+            # Store content in cache
+            for content in contents:
+                try:
+                    # Check if content already exists
+                    existing = self.supabase.table("source_content_cache").select("id").eq(
+                        "source_id", source_id
+                    ).eq("url", content.url).execute()
+                    
+                    if existing.data:
+                        continue  # Skip existing content
+                    
+                    # Store in cache
+                    self.supabase.table("source_content_cache").insert({
+                        "source_id": source_id,
+                        "content_type": "youtube_video",
+                        "title": content.title,
+                        "content": content.content,
+                        "url": content.url,
+                        "metadata": content.metadata,
+                        "published_at": content.published_at.isoformat() if content.published_at else None
+                    }).execute()
+                    
+                    items_new += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Error storing YouTube content: {str(e)}")
+                    continue
+            
+            return {
+                "status": "success" if items_new > 0 else "partial",
+                "items_fetched": items_fetched,
+                "items_new": items_new
+            }
+            
+        except Exception as e:
+            logger.error(f"YouTube crawl failed for source {source_id}: {str(e)}")
+            raise Exception(f"YouTube crawl failed: {str(e)}")
     
     async def _crawl_github_source(self, source: Dict[str, Any]) -> Dict[str, Any]:
         """Crawl GitHub source (placeholder for now)"""

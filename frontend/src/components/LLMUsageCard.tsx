@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/Card";
-import { AlertCircle, CheckCircle, Clock, Zap, TrendingUp } from "lucide-react";
+import { AlertCircle, CheckCircle, Clock, Zap, TrendingUp, RefreshCw } from "lucide-react";
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -8,7 +8,7 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 // Global cache to prevent duplicate requests across component instances
 let cachedUsage: any = null;
 let lastFetchTime = 0;
-const CACHE_DURATION = 60000; // 1 minute cache
+const CACHE_DURATION = 10000; // 10 seconds cache (reduced for real-time updates)
 
 interface LLMUsageSummary {
   today: {
@@ -44,21 +44,26 @@ interface LLMUsageSummary {
 export function LLMUsageCard() {
   const [usage, setUsage] = useState<LLMUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchUsage();
-    // Refresh every 2 minutes (less frequent to reduce API calls)
-    const interval = setInterval(fetchUsage, 120000);
+    // Refresh every 30 seconds for real-time updates
+    const interval = setInterval(fetchUsage, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const fetchUsage = async () => {
+  const fetchUsage = async (forceRefresh = false) => {
     try {
+      if (forceRefresh) {
+        setRefreshing(true);
+      }
+      
       const now = Date.now();
       
-      // Use cached data if available and fresh
-      if (cachedUsage && (now - lastFetchTime) < CACHE_DURATION) {
+      // Use cached data if available and fresh (unless force refresh)
+      if (!forceRefresh && cachedUsage && (now - lastFetchTime) < CACHE_DURATION) {
         console.log("Using cached LLM usage data");
         setUsage(cachedUsage);
         setError(null);
@@ -84,7 +89,12 @@ export function LLMUsageCard() {
       setError("Failed to load usage data");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchUsage(true);
   };
 
   const formatNumber = (num: number) => {
@@ -158,10 +168,20 @@ export function LLMUsageCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Zap className="w-5 h-5 text-purple-600" />
-          LLM API Usage
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-purple-600" />
+            LLM API Usage
+          </CardTitle>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
+            title="Refresh usage data"
+          >
+            <RefreshCw className={`w-4 h-4 text-gray-600 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Rate Limits */}
@@ -191,7 +211,7 @@ export function LLMUsageCard() {
               </div>
             </div>
             <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-              <span>{usage.rate_limits.per_minute.limit_value} calls</span>
+              <span>{usage.rate_limits.per_minute.current_count} / {usage.rate_limits.per_minute.limit_value} calls</span>
               <span>{minutePercentage.toFixed(0)}% used</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
@@ -230,7 +250,7 @@ export function LLMUsageCard() {
             </div>
             <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
               <span>
-                {formatNumber(usage.rate_limits.per_day.limit_value)} calls
+                {formatNumber(usage.rate_limits.per_day.current_count)} / {formatNumber(usage.rate_limits.per_day.limit_value)} calls
               </span>
               <span>{dayPercentage.toFixed(1)}% used</span>
             </div>

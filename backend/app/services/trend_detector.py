@@ -6,12 +6,11 @@ Analyzes content from sources to detect trending topics and patterns
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
-from collections import Counter
-from groq import Groq
+import re
 from supabase import Client
 
-from app.core.config import settings
 from app.core.database import get_supabase
+from app.services.llm_wrapper import llm_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,6 @@ class TrendDetector:
     """Detects trending topics from aggregated content using Groq LLM"""
     
     def __init__(self):
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
         self.model = "openai/gpt-oss-20b"
         self.supabase: Optional[Client] = None
     
@@ -62,7 +60,7 @@ class TrendDetector:
         logger.info(f"Analyzing {len(content_items)} content items")
         
         # Extract topics using Groq
-        topics = await self._extract_topics(content_items)
+        topics = await self._extract_topics(content_items, user_id)
         
         if not topics:
             logger.warning("No topics extracted from content")
@@ -134,13 +132,15 @@ class TrendDetector:
     
     async def _extract_topics(
         self,
-        content_items: List[Dict[str, Any]]
+        content_items: List[Dict[str, Any]],
+        user_id: str
     ) -> List[Dict[str, Any]]:
         """
         Extract topics from content using Groq LLM
         
         Args:
             content_items: List of content items
+            user_id: User ID for tracking
         
         Returns:
             List of extracted topics with metadata
@@ -162,9 +162,8 @@ class TrendDetector:
             # Create prompt for topic extraction
             prompt = self._create_topic_extraction_prompt(content_summaries)
             
-            # Call Groq API
-            response = self.client.chat.completions.create(
-                model=self.model,
+            # Call LLM via wrapper
+            result = await llm_wrapper.chat_completion(
                 messages=[
                     {
                         "role": "system",
@@ -175,9 +174,15 @@ class TrendDetector:
                         "content": prompt
                     }
                 ],
+                user_id=user_id,
+                service_name="trend_detector",
+                model=self.model,
                 temperature=0.4,
-                max_tokens=2000
+                max_tokens=5000,
+                metadata={"content_count": len(content_summaries)}
             )
+            
+            response = result["response"]
             
             # Parse response
             import json
@@ -215,6 +220,8 @@ class TrendDetector:
             f"[ID: {item['id']}]\nTitle: {item['title']}\nSnippet: {item['snippet']}"
             for item in content_summaries
         ])
+        
+        content_text = re.sub(r'\n+', '\n', content_text)
         
         prompt = f"""Analyze the following content items and identify the main trending topics and themes.
 

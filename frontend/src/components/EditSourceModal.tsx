@@ -305,17 +305,20 @@ export function EditSourceModal({ open, onOpenChange, source, onSourceUpdated }:
                     <option value="list">List</option>
                   </select>
                 </div>
-                <Input
-                  label="Max Results (per crawl)"
-                  id="max_results"
-                  type="number"
-                  value={config.max_results || '10'}
-                  onChange={(e) => setConfig({ ...config, max_results: parseInt(e.target.value) || 10 })}
-                  placeholder="10"
-                  min="1"
-                  max="100"
-                  disabled={loading}
-                />
+                <div>
+                  <Input
+                    label="Max Results (per crawl)"
+                    id="max_results"
+                    type="number"
+                    value={config.max_results || '10'}
+                    onChange={(e) => setConfig({ ...config, max_results: parseInt(e.target.value) || 10 })}
+                    placeholder="10"
+                    min="5"
+                    max="100"
+                    disabled={loading}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Twitter API requires minimum 5 results</p>
+                </div>
               </>
             )}
 

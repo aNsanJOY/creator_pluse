@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
-    voice_profile JSONB,
-    preferences JSONB DEFAULT '{}',
+    voice_profile JSONB NULL,
+    preferences JSONB NULL DEFAULT '{}'::jsonb,
     reset_token TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

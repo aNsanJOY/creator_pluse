@@ -14,6 +14,15 @@ export interface UpdateProfileData {
   email?: string
 }
 
+export interface PasswordResetRequest {
+  email: string
+}
+
+export interface PasswordReset {
+  token: string
+  new_password: string
+}
+
 class UserService {
   async getProfile(): Promise<UserProfile> {
     const response = await apiClient.get<UserProfile>('/api/user/profile')
@@ -27,6 +36,16 @@ class UserService {
 
   async deleteAccount(): Promise<{ message: string; detail: string }> {
     const response = await apiClient.delete<{ message: string; detail: string }>('/api/user/account')
+    return response.data
+  }
+
+  async requestPasswordReset(data: PasswordResetRequest): Promise<{ message: string }> {
+    const response = await apiClient.post<{ message: string }>('/api/user/forgot-password', data)
+    return response.data
+  }
+
+  async resetPassword(data: PasswordReset): Promise<{ message: string }> {
+    const response = await apiClient.post<{ message: string }>('/api/user/reset-password', data)
     return response.data
   }
 }

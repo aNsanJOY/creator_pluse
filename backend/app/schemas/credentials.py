@@ -3,8 +3,8 @@ Credential schemas for different source types.
 Defines what credentials each source type accepts.
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel
+from typing import Optional, Dict, List
 from enum import Enum
 
 
@@ -61,36 +61,44 @@ CREDENTIAL_SCHEMAS = {
         source_type="twitter",
         fields=[
             CredentialField(
+                name="bearer_token",
+                label="Bearer Token (OAuth 2.0)",
+                type=CredentialFieldType.API_KEY,
+                required=False,
+                placeholder="Your Twitter Bearer Token",
+                help_text="Option 1: Provide Bearer Token for read-only access (easier setup)"
+            ),
+            CredentialField(
                 name="api_key",
                 label="API Key (Consumer Key)",
                 type=CredentialFieldType.API_KEY,
-                required=True,
+                required=False,
                 placeholder="Your Twitter API Key",
-                help_text="Required: Get from Twitter Developer Portal (https://developer.twitter.com/)"
+                help_text="Option 2: OAuth 1.0a - Provide all 4 fields (api_key, api_secret, access_token, access_token_secret)"
             ),
             CredentialField(
                 name="api_secret",
                 label="API Secret (Consumer Secret)",
                 type=CredentialFieldType.PASSWORD,
-                required=True,
+                required=False,
                 placeholder="Your Twitter API Secret",
-                help_text="Required: Get from Twitter Developer Portal"
+                help_text="Option 2: OAuth 1.0a - Get from Twitter Developer Portal (https://developer.twitter.com/)"
             ),
             CredentialField(
                 name="access_token",
                 label="Access Token",
                 type=CredentialFieldType.OAUTH_TOKEN,
-                required=True,
+                required=False,
                 placeholder="Your Access Token",
-                help_text="Required: Get from Twitter Developer Portal"
+                help_text="Option 2: OAuth 1.0a - Get from Twitter Developer Portal"
             ),
             CredentialField(
                 name="access_token_secret",
                 label="Access Token Secret",
                 type=CredentialFieldType.PASSWORD,
-                required=True,
+                required=False,
                 placeholder="Your Access Token Secret",
-                help_text="Required: Get from Twitter Developer Portal"
+                help_text="Option 2: OAuth 1.0a - Get from Twitter Developer Portal"
             )
         ],
         supports_global=False,

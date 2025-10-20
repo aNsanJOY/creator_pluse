@@ -6,11 +6,10 @@ Generates structured summaries of content from various sources
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from groq import Groq
 from supabase import Client
 
-from app.core.config import settings
 from app.core.database import get_supabase
+from app.services.llm_wrapper import llm_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ class ContentSummarizer:
     """Generates AI-powered summaries of content using Groq LLM"""
     
     def __init__(self):
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
         self.model = "openai/gpt-oss-20b"
         self.supabase: Optional[Client] = None
     
@@ -105,11 +103,14 @@ class ContentSummarizer:
                 summaries.append(summary)
             except Exception as e:
                 logger.error(f"Error summarizing content {content_id}: {str(e)}")
+                # Skip this content and continue with the rest
+                logger.warning(f"Skipping content {content_id} - will continue with remaining items")
                 summaries.append({
                     "content_id": content_id,
                     "error": str(e),
                     "status": "failed"
                 })
+                # Don't raise - allow batch to continue processing other items
         
         return summaries
     
@@ -218,9 +219,11 @@ class ContentSummarizer:
             # Create prompt based on summary type
             prompt = self._create_summary_prompt(content, summary_type)
             
-            # Call Groq API
-            response = self.client.chat.completions.create(
-                model=self.model,
+            # Get user_id from content (via sources join)
+            user_id = content.get("sources", {}).get("user_id", "anonymous")
+            
+            # Call LLM via wrapper
+            result = await llm_wrapper.chat_completion(
                 messages=[
                     {
                         "role": "system",
@@ -231,9 +234,15 @@ class ContentSummarizer:
                         "content": prompt
                     }
                 ],
-                temperature=0.3,  # Lower temperature for consistent summaries
-                max_tokens=1000 if summary_type == "detailed" else 500
+                user_id=user_id,
+                service_name="content_summarizer",
+                model=self.model,
+                temperature=0.3,
+                max_tokens=5000 if summary_type == "detailed" else 500,
+                metadata={"summary_type": summary_type}
             )
+            
+            response = result["response"]
             
             # Parse response
             import json
@@ -446,7 +455,7 @@ Provide ONLY the JSON object, no additional text."""
             
         except Exception as e:
             logger.error(f"Error fetching summaries: {str(e)}")
-            return {}
+            raise e
 
 
 # Singleton instance

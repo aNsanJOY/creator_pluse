@@ -4,10 +4,7 @@ Analyzes newsletter samples to extract writing style and create voice profiles
 """
 
 from typing import List, Dict, Any, Optional
-from groq import Groq
-from app.core.config import settings
-from app.services.llm_usage_tracker import llm_usage_tracker
-import time
+from app.services.llm_wrapper import llm_wrapper
 
 # Default voice profile when no samples are available
 DEFAULT_VOICE_PROFILE = {
@@ -40,7 +37,6 @@ class VoiceAnalyzer:
     """Analyzes writing samples to extract voice and style characteristics"""
     
     def __init__(self):
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
         self.model = "openai/gpt-oss-20b"  # Using Mixtral for better analysis
     
     def create_analysis_prompt(self, samples: List[Dict[str, str]]) -> str:
@@ -128,12 +124,8 @@ Provide ONLY the JSON object, no additional text or explanation."""
             # Create analysis prompt
             prompt = self.create_analysis_prompt(samples)
             
-            # Track API call timing
-            start_time = time.time()
-            
-            # Call Groq API
-            response = self.client.chat.completions.create(
-                model=self.model,
+            # Call LLM via wrapper
+            result = await llm_wrapper.chat_completion(
                 messages=[
                     {
                         "role": "system",
@@ -144,33 +136,15 @@ Provide ONLY the JSON object, no additional text or explanation."""
                         "content": prompt
                     }
                 ],
-                temperature=0.3,  # Lower temperature for more consistent analysis
-                max_tokens=2000
+                user_id=user_id or "anonymous",
+                service_name="voice_analyzer",
+                model=self.model,
+                temperature=0.3,
+                max_tokens=5000,
+                metadata={"samples_count": len(samples)}
             )
             
-            # Calculate duration
-            duration_ms = int((time.time() - start_time) * 1000)
-            
-            # Log usage if user_id provided
-            if user_id:
-                try:
-                    await llm_usage_tracker.log_llm_call(
-                        user_id=user_id,
-                        model=self.model,
-                        endpoint="/v1/chat/completions",
-                        status_code=200,
-                        tokens_used=response.usage.total_tokens if response.usage else 0,
-                        prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-                        completion_tokens=response.usage.completion_tokens if response.usage else 0,
-                        duration_ms=duration_ms,
-                        metadata={"service": "voice_analyzer", "samples_count": len(samples)}
-                    )
-                except Exception as log_error:
-                    # Don't fail the request if logging fails
-                    import logging
-                    import traceback
-                    logging.error(f"Failed to log LLM usage: {log_error}")
-                    logging.error(traceback.format_exc())
+            response = result["response"]
             
             # Extract and parse response
             analysis_text = response.choices[0].message.content.strip()

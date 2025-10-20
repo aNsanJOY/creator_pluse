@@ -5,7 +5,7 @@ Endpoints for newsletter draft generation, management, and publishing
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from supabase import Client
-from typing import List, Dict, Any, Optional
+from typing import Optional
 from datetime import datetime, timedelta, timezone
 import asyncio
 
@@ -136,7 +136,7 @@ async def generate_draft(
             "metadata": {
                 "topic_count": request.topic_count,
                 "days_back": request.days_back,
-                "use_voice_profile": request.use_voice_profile
+                    "use_voice_profile": request.use_voice_profile
             }
         }
         
@@ -147,11 +147,15 @@ async def generate_draft(
             try:
                 # Generate draft content without storing it
                 from app.services.trend_detector import trend_detector
-                from app.services.content_summarizer import content_summarizer
                 from app.services.feedback_analyzer import feedback_analyzer
+                from app.services.preferences_service import PreferencesService
                 
                 # Initialize draft generator
                 draft_generator.initialize()
+                
+                # Get user preferences
+                preferences_service = PreferencesService(supabase)
+                preferences = await preferences_service.get_preferences(user_id)
                 
                 # Get trending topics
                 trends = await trend_detector.detect_trends(
@@ -160,14 +164,6 @@ async def generate_draft(
                     min_score=0.2,
                     max_trends=request.topic_count
                 )
-                
-                if not trends:
-                    trends = await trend_detector.detect_trends(
-                        user_id=user_id,
-                        days_back=request.days_back,
-                        min_score=0.1,
-                        max_trends=request.topic_count
-                    )
                 
                 # Handle no trends case
                 if not trends:
@@ -185,10 +181,11 @@ async def generate_draft(
                 # Get summaries
                 trend_summaries = await draft_generator._get_trend_summaries(trends, user_id)
                 
-                # Get voice profile
+                # Get voice profile based on preferences
                 voice_profile = None
-                if request.use_voice_profile:
-                    voice_profile = await draft_generator._get_voice_profile(user_id)
+                use_voice = request.use_voice_profile if request.use_voice_profile is not None else preferences.get("use_voice_profile", False)
+                if use_voice:
+                    voice_profile = await preferences_service.get_voice_profile(user_id)
                 
                 # Get feedback insights
                 feedback_insights = await feedback_analyzer.get_feedback_insights(
@@ -196,11 +193,12 @@ async def generate_draft(
                     days_back=30
                 )
                 
-                # Generate draft content
+                # Generate draft content with preferences
                 draft_content = await draft_generator._generate_draft_content(
                     trends=trends,
                     summaries=trend_summaries,
                     voice_profile=voice_profile,
+                    preferences=preferences,
                     feedback_insights=feedback_insights,
                     user_id=user_id
                 )
@@ -228,10 +226,23 @@ async def generate_draft(
                 }).execute()
                 
             except Exception as e:
+                import logging
+                import traceback
+                logger = logging.getLogger(__name__)
+                
+                # Log detailed error with traceback
+                logger.error(f"❌ DRAFT GENERATION FAILED for user {user_id}")
+                logger.error(f"Error: {str(e)}")
+                logger.error(f"Traceback:\n{traceback.format_exc()}")
+                
                 # Mark as failed
                 supabase.table("newsletter_drafts").update({
                     "status": "failed",
-                    "metadata": {"error": str(e)}
+                    "metadata": {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    }
                 }).eq("id", draft_id).execute()
                 
                 # Log failed generation
@@ -513,27 +524,25 @@ async def regenerate_draft(
                     topic_count = len([s for s in old_sections if s.get("type") == "topic"])
                     topic_count = max(3, min(10, topic_count))
                 
-                # Generate new draft content (same logic as generate)
+                 # Generate draft content without storing it
                 from app.services.trend_detector import trend_detector
-                from app.services.content_summarizer import content_summarizer
                 from app.services.feedback_analyzer import feedback_analyzer
+                from app.services.preferences_service import PreferencesService
                 
+                # Initialize draft generator
                 draft_generator.initialize()
                 
+                # Get user preferences
+                preferences_service = PreferencesService(supabase)
+                preferences = await preferences_service.get_preferences(user_id)
+                
+                # Get trending topics
                 trends = await trend_detector.detect_trends(
                     user_id=user_id,
                     days_back=days_back,
                     min_score=0.2,
-                    max_trends=topic_count
+                    max_trends=request.topic_count
                 )
-                
-                if not trends:
-                    trends = await trend_detector.detect_trends(
-                        user_id=user_id,
-                        days_back=days_back,
-                        min_score=0.1,
-                        max_trends=topic_count
-                    )
                 
                 if not trends:
                     fallback_draft = await draft_generator._create_fallback_draft(user_id, days_back, store=False)
@@ -551,19 +560,23 @@ async def regenerate_draft(
                 
                 trend_summaries = await draft_generator._get_trend_summaries(trends, user_id)
                 
+                # Get voice profile based on preferences
                 voice_profile = None
-                if request.use_voice_profile:
-                    voice_profile = await draft_generator._get_voice_profile(user_id)
+                use_voice = request.use_voice_profile if request.use_voice_profile is not None else preferences.get("use_voice_profile", False)
+                if use_voice:
+                    voice_profile = await preferences_service.get_voice_profile(user_id)
                 
                 feedback_insights = await feedback_analyzer.get_feedback_insights(
                     user_id=user_id,
                     days_back=30
                 )
                 
+                # Generate draft content with preferences
                 draft_content = await draft_generator._generate_draft_content(
                     trends=trends,
                     summaries=trend_summaries,
                     voice_profile=voice_profile,
+                    preferences=preferences,
                     feedback_insights=feedback_insights,
                     user_id=user_id
                 )
@@ -595,11 +608,26 @@ async def regenerate_draft(
                 }).execute()
                 
             except Exception as e:
+                import logging
+                import traceback
+                logger = logging.getLogger(__name__)
+                
+                # Log detailed error with traceback
+                logger.error(f"❌ DRAFT REGENERATION FAILED for user {user_id}")
+                logger.error(f"Original draft: {draft_id}, New draft: {new_draft_id}")
+                logger.error(f"Error: {str(e)}")
+                logger.error(f"Traceback:\n{traceback.format_exc()}")
+                
                 # Mark as failed
                 supabase.table("newsletter_drafts").update({
                     "status": "failed",
                     "title": "Regeneration Failed",
-                    "metadata": {"error": str(e), "regenerated_from": draft_id}
+                    "metadata": {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc(),
+                        "regenerated_from": draft_id
+                    }
                 }).eq("id", new_draft_id).execute()
                 
                 # Log failed regeneration
@@ -655,6 +683,11 @@ async def publish_draft(
     try:
         user_id = current_user["id"]
         
+        # Fetch user preferences
+        from app.services.preferences_service import PreferencesService
+        preferences_service = PreferencesService(supabase)
+        preferences = await preferences_service.get_preferences(user_id)
+        
         # Get draft
         result = supabase.table("newsletter_drafts").select("*").eq(
             "id", draft_id
@@ -678,12 +711,22 @@ async def publish_draft(
             "id", draft_id
         ).execute()
         
-        # Send email if requested
-        if request.send_email:
+        # Check notification preferences before sending
+        notification_prefs = preferences.get("notification_preferences", {})
+        should_send_notification = notification_prefs.get("email_on_publish_success", True)
+        
+        # Send email if requested and notifications are enabled
+        if request.send_email and should_send_notification:
             # Import email service
             from app.services.email_service import email_service
             
-            subject = request.subject or draft["title"]
+            # Apply subject template from preferences if not provided
+            subject = request.subject
+            if not subject:
+                email_prefs = preferences.get("email_preferences", {})
+                template = email_prefs.get("default_subject_template", "{title} - Newsletter")
+                subject = template.replace("{title}", draft["title"])
+            
             recipients = request.recipient_emails or []
             
             # If no recipients specified, get from user profile
@@ -694,7 +737,7 @@ async def publish_draft(
                 if user_result.data:
                     recipients = [user_result.data[0]["email"]]
             
-            # Send email in background
+            # Send email in background (preferences will be applied in send_newsletter)
             background_tasks.add_task(
                 email_service.send_newsletter,
                 draft_id=draft_id,
@@ -704,6 +747,8 @@ async def publish_draft(
             )
             
             message = "Draft published and email queued for delivery"
+        elif request.send_email and not should_send_notification:
+            message = "Draft published but email notifications are disabled in preferences"
         else:
             message = "Draft published successfully"
         

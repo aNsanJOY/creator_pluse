@@ -452,17 +452,20 @@ export function AddSourceModal({ open, onOpenChange, onSourceAdded }: AddSourceM
                       <option value="list">List</option>
                     </select>
                   </div>
-                  <Input
-                    label="Max Results (per crawl)"
-                    id="max_results"
-                    type="number"
-                    value={config.max_results || '10'}
-                    onChange={(e) => setConfig({ ...config, max_results: parseInt(e.target.value) || 10 })}
-                    placeholder="10"
-                    min="1"
-                    max="100"
-                    disabled={loading}
-                  />
+                  <div>
+                    <Input
+                      label="Max Results (per crawl)"
+                      id="max_results"
+                      type="number"
+                      value={config.max_results || '10'}
+                      onChange={(e) => setConfig({ ...config, max_results: parseInt(e.target.value) || 10 })}
+                      placeholder="10"
+                      min="5"
+                      max="100"
+                      disabled={loading}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Twitter API requires minimum 5 results</p>
+                  </div>
                 </>
               )}
 
@@ -482,7 +485,7 @@ export function AddSourceModal({ open, onOpenChange, onSourceAdded }: AddSourceM
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-800">
                   <strong>Note:</strong> This source will be crawled daily to discover new content for your newsletter.
-                  {selectedType.type === 'twitter' && ' OAuth authentication will be required for Twitter sources.'}
+                  {selectedType.type === 'twitter' && ' Twitter requires either Bearer Token (OAuth 2.0) or full OAuth 1.0a credentials (API Key, API Secret, Access Token, Access Token Secret).'}
                   {selectedType.type === 'youtube' && ' OAuth authentication will be required for YouTube sources.'}
                 </p>
               </div>

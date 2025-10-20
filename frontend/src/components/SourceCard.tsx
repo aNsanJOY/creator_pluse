@@ -272,6 +272,15 @@ export function SourceCard({ source, onDelete, onReactivate, onUpdate }: SourceC
                   <span className="truncate">{source.config.channel_id}</span>
                 </div>
               )}
+              {source.config.username && (
+                <div className="flex items-center gap-2">
+                  <Twitter className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <span className="truncate">@{source.config.username}</span>
+                  {source.config.fetch_type && (
+                    <span className="text-xs text-gray-500 ml-1">({source.config.fetch_type})</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

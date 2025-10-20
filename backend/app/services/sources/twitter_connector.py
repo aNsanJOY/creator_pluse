@@ -5,7 +5,7 @@ Handles OAuth authentication, content fetching, and rate limiting.
 
 import tweepy
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 from app.services.sources.base import BaseSourceConnector, SourceContent
 from app.core.config import settings
@@ -52,7 +52,7 @@ class TwitterConnector(BaseSourceConnector):
                     access_token=access_token,
                     access_token_secret=access_token_secret
                 )
-                self.api = tweepy.API(auth, wait_on_rate_limit=True)
+                self.api = tweepy.API(auth, wait_on_rate_limit=False)
                 
                 # Also create v2 client for better features
                 self.client = tweepy.Client(
@@ -60,7 +60,7 @@ class TwitterConnector(BaseSourceConnector):
                     consumer_secret=api_secret,
                     access_token=access_token,
                     access_token_secret=access_token_secret,
-                    wait_on_rate_limit=True
+                    wait_on_rate_limit=False
                 )
                 self.auth_type = "oauth1"
             # OAuth 2.0 Bearer Token (read-only access)
@@ -68,7 +68,7 @@ class TwitterConnector(BaseSourceConnector):
                 print("Initializing X (Twitter) client with Bearer Token (OAuth 2.0)")
                 self.client = tweepy.Client(
                     bearer_token=bearer_token,
-                    wait_on_rate_limit=True
+                    wait_on_rate_limit=False
                 )
                 self.api = None
                 self.auth_type = "bearer"
@@ -91,9 +91,13 @@ class TwitterConnector(BaseSourceConnector):
         X (Twitter) requires user-provided credentials:
         - OAuth 1.0a: api_key, api_secret, access_token, access_token_secret
         - OAuth 2.0: bearer_token (alternative)
+        
+        Note: This returns an empty list because credentials are conditionally required.
+        Use validate_credentials() for actual validation.
         """
-        # At minimum, bearer_token OR all OAuth 1.0a credentials required
-        return ["api_key", "api_secret", "access_token", "access_token_secret"]
+        # Return empty list since credentials are conditionally required
+        # Either bearer_token OR all OAuth 1.0a credentials must be provided
+        return []
     
     def get_required_config(self) -> List[str]:
         """
@@ -103,6 +107,42 @@ class TwitterConnector(BaseSourceConnector):
         - max_results: Maximum posts to fetch per request (default: 10, max: 100)
         """
         return ["username", "fetch_type"]
+    
+    def validate_credentials(self) -> tuple[bool, str]:
+        """
+        Validate that either bearer_token OR all OAuth 1.0a credentials are provided.
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        if not self.credentials:
+            return False, "X (Twitter) requires credentials. Provide either: (1) Bearer Token, or (2) All OAuth 1.0a credentials (api_key, api_secret, access_token, access_token_secret)"
+        
+        bearer_token = self.credentials.get('bearer_token')
+        api_key = self.credentials.get('api_key')
+        api_secret = self.credentials.get('api_secret')
+        access_token = self.credentials.get('access_token')
+        access_token_secret = self.credentials.get('access_token_secret')
+        
+        # Check if bearer_token is provided
+        has_bearer = bool(bearer_token)
+        
+        # Check if all OAuth 1.0a credentials are provided
+        has_oauth1 = all([api_key, api_secret, access_token, access_token_secret])
+        
+        if not has_bearer and not has_oauth1:
+            # Check if partial OAuth 1.0a credentials are provided
+            oauth1_fields = [api_key, api_secret, access_token, access_token_secret]
+            oauth1_field_names = ['api_key', 'api_secret', 'access_token', 'access_token_secret']
+            provided_oauth1 = [name for name, value in zip(oauth1_field_names, oauth1_fields) if value]
+            
+            if provided_oauth1:
+                missing = [name for name, value in zip(oauth1_field_names, oauth1_fields) if not value]
+                return False, f"Incomplete OAuth 1.0a credentials. Missing: {', '.join(missing)}. Either provide all OAuth 1.0a credentials or use Bearer Token instead."
+            else:
+                return False, "X (Twitter) requires credentials. Provide either: (1) Bearer Token, or (2) All OAuth 1.0a credentials (api_key, api_secret, access_token, access_token_secret)"
+        
+        return True, ""
     
     async def validate_connection(self) -> bool:
         """Validate X (Twitter) API connection"""
@@ -123,7 +163,7 @@ class TwitterConnector(BaseSourceConnector):
             # For Bearer Token, try a simple API call
             elif self.auth_type == "bearer":
                 # Try to get a public user to validate the token
-                test_user = self.client.get_user(username="twitter")
+                test_user = self.client.get_user(username="elonmusk")
                 if test_user.data:
                     print("X (Twitter) connection validated with Bearer Token")
                     return True
@@ -166,7 +206,8 @@ class TwitterConnector(BaseSourceConnector):
         
         username = self.config.get("username")
         fetch_type = self.config.get("fetch_type", "timeline")
-        max_results = min(self.config.get("max_results", 10), 100)  # Default 10, max 100 (API limit)
+        # Twitter API requires max_results to be between 5 and 100
+        max_results = max(5, min(self.config.get("max_results", 10), 100))  # Min 5, default 10, max 100
         
         if not username:
             raise ValueError("Username is required in config")
@@ -188,11 +229,16 @@ class TwitterConnector(BaseSourceConnector):
             # Calculate start_time for delta crawl
             start_time = None
             if since:
-                # Twitter API requires RFC 3339 format
-                start_time = since.isoformat() + "Z"
+                # Twitter API requires RFC 3339 format with timezone
+                # Ensure timezone-aware datetime
+                if since.tzinfo is None:
+                    # If naive datetime, assume UTC
+                    since = since.replace(tzinfo=timezone.utc)
+                start_time = since.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
             else:
                 # Default to last 7 days if no since parameter
-                start_time = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
+                dt = datetime.now(timezone.utc) - timedelta(days=7)
+                start_time = dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
             
             # Fetch tweets based on type
             # Note: These endpoints require at least Basic tier ($200/month as of Oct 2024)
@@ -241,10 +287,15 @@ class TwitterConnector(BaseSourceConnector):
             return contents
         
         except tweepy.TooManyRequests as e:
-            # Handle rate limiting
-            print(f"X (Twitter) rate limit reached: {e}")
-            await self.handle_rate_limit(retry_after=900)  # 15 minutes
-            return []
+            # Handle rate limiting - don't wait, just raise error
+            error_msg = (
+                f"X (Twitter) rate limit exceeded: {e}\n\n"
+                "Twitter API rate limits have been reached. Please try again later.\n"
+                "Rate limits typically reset every 15 minutes.\n\n"
+                "For more information: https://developer.x.com/en/docs/twitter-api/rate-limits"
+            )
+            print(error_msg)
+            raise ValueError("X (Twitter) rate limit exceeded. Please try again in 15 minutes.")
         except tweepy.Unauthorized as e:
             error_msg = (
                 f"X (Twitter) authentication failed (401 Unauthorized): {e}\n\n"

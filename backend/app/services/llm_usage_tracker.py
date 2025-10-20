@@ -56,10 +56,10 @@ class LLMUsageTracker:
         try:
             self.initialize()
             
-            logger.info(f"Logging LLM call for user {user_id}: model={model}, tokens={tokens_used}")
+            logger.info(f"[LLM_USAGE] Logging call for user {user_id}: model={model}, tokens={tokens_used}, prompt={prompt_tokens}, completion={completion_tokens}")
             
             # Insert log
-            result = self.supabase.table("llm_usage_logs").insert({
+            log_data = {
                 "user_id": user_id,
                 "model": model,
                 "endpoint": endpoint,
@@ -70,69 +70,104 @@ class LLMUsageTracker:
                 "duration_ms": duration_ms,
                 "error_message": error_message,
                 "metadata": metadata or {}
-            }).execute()
+            }
             
-            logger.info(f"LLM usage logged successfully: {result.data}")
+            logger.info(f"[LLM_USAGE] Inserting log data: {log_data}")
+            result = self.supabase.table("llm_usage_logs").insert(log_data).execute()
+            
+            if result.data:
+                logger.info(f"[LLM_USAGE] ✓ Log inserted successfully with ID: {result.data[0].get('id')}")
+            else:
+                logger.warning(f"[LLM_USAGE] ⚠ Log insert returned no data")
             
             # Update rate limit counter
+            logger.info(f"[LLM_USAGE] Updating rate limits for user {user_id}")
             await self._update_rate_limit(user_id)
+            logger.info(f"[LLM_USAGE] ✓ Rate limits updated successfully")
             
         except Exception as e:
-            logger.error(f"Error logging LLM usage: {str(e)}", exc_info=True)
+            logger.error(f"[LLM_USAGE] ✗ ERROR logging LLM usage: {str(e)}", exc_info=True)
+            # Don't re-raise - logging failures shouldn't break the main operation
     
     async def _update_rate_limit(self, user_id: str):
-        """Update rate limit counters"""
+        """Update rate limit counters for all limit types"""
         try:
             self.initialize()
             
-            # Get current rate limits
-            result = self.supabase.table("llm_rate_limits").select("*").eq(
-                "user_id", user_id
-            ).execute()
+            # Ensure rate limits exist for all types
+            limit_types = ["minute", "day"]
             
-            if not result.data:
-                return
-            
-            now = datetime.now(timezone.utc)
-            
-            for limit in result.data:
-                reset_at = datetime.fromisoformat(limit["reset_at"].replace("Z", "+00:00"))
+            for limit_type in limit_types:
+                logger.info(f"[RATE_LIMIT] Updating {limit_type} limit for user {user_id}")
                 
-                # Check if reset time has passed
-                if now >= reset_at:
-                    # Reset counter
-                    new_reset_at = self._calculate_next_reset(limit["limit_type"])
-                    self.supabase.table("llm_rate_limits").update({
-                        "current_count": 1,
-                        "reset_at": new_reset_at.isoformat()
-                    }).eq("id", limit["id"]).execute()
+                # Get or create rate limit
+                result = self.supabase.table("llm_rate_limits").select("*").eq(
+                    "user_id", user_id
+                ).eq("limit_type", limit_type).execute()
+                
+                now = datetime.now(timezone.utc)
+                
+                if not result.data:
+                    logger.info(f"[RATE_LIMIT] No {limit_type} limit found, creating new one")
+                    # Create new rate limit
+                    await self._create_user_rate_limit(user_id, limit_type)
+                    # Set count to 1 for this call
+                    update_result = self.supabase.table("llm_rate_limits").update({
+                        "current_count": 1
+                    }).eq("user_id", user_id).eq("limit_type", limit_type).execute()
+                    logger.info(f"[RATE_LIMIT] ✓ Created {limit_type} limit with count=1")
                 else:
-                    # Increment counter
-                    self.supabase.table("llm_rate_limits").update({
-                        "current_count": limit["current_count"] + 1
-                    }).eq("id", limit["id"]).execute()
+                    limit = result.data[0]
+                    reset_at = datetime.fromisoformat(limit["reset_at"].replace("Z", "+00:00"))
+                    current_count = limit["current_count"]
+                    
+                    logger.info(f"[RATE_LIMIT] Current {limit_type}: count={current_count}, reset_at={reset_at}")
+                    
+                    # Check if reset time has passed
+                    if now >= reset_at:
+                        # Reset counter and set new reset time
+                        new_reset_at = self._calculate_next_reset(limit_type)
+                        update_result = self.supabase.table("llm_rate_limits").update({
+                            "current_count": 1,
+                            "reset_at": new_reset_at.isoformat()
+                        }).eq("id", limit["id"]).execute()
+                        logger.info(f"[RATE_LIMIT] ✓ Reset {limit_type} limit: count=1, new_reset={new_reset_at}")
+                    else:
+                        # Increment counter
+                        new_count = current_count + 1
+                        update_result = self.supabase.table("llm_rate_limits").update({
+                            "current_count": new_count
+                        }).eq("id", limit["id"]).execute()
+                        logger.info(f"[RATE_LIMIT] ✓ Incremented {limit_type} limit: {current_count} -> {new_count}")
         
         except Exception as e:
-            logger.error(f"Error updating rate limit: {str(e)}")
+            logger.error(f"[RATE_LIMIT] ✗ ERROR updating rate limit: {str(e)}", exc_info=True)
     
     def _calculate_next_reset(self, limit_type: str) -> datetime:
         """Calculate next reset time based on limit type"""
         now = datetime.now(timezone.utc)
         
         if limit_type == "minute":
-            return now + timedelta(minutes=1)
+            # Reset at the start of the next minute
+            next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
+            return next_minute
         elif limit_type == "hour":
-            return now + timedelta(hours=1)
+            # Reset at the start of the next hour
+            next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            return next_hour
         elif limit_type == "day":
-            return now + timedelta(days=1)
+            # Reset at midnight UTC of the next day
+            next_day = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return next_day
         elif limit_type == "month":
             # Reset at start of next month
             if now.month == 12:
-                return datetime(now.year + 1, 1, 1)
+                return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
             else:
-                return datetime(now.year, now.month + 1, 1)
+                return datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
         
-        return now + timedelta(days=1)  # Default to daily
+        # Default to next day at midnight
+        return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     
     async def check_rate_limit(
         self,
@@ -176,19 +211,31 @@ class LLMUsageTracker:
             
             # Check if reset time has passed
             if now >= reset_at:
+                # Reset the counter and update reset time
+                new_reset_at = self._calculate_next_reset(limit_type)
+                self.supabase.table("llm_rate_limits").update({
+                    "current_count": 0,
+                    "reset_at": new_reset_at.isoformat()
+                }).eq("id", limit["id"]).execute()
+                
                 can_call = True
                 current_count = 0
+                reset_at_str = new_reset_at.isoformat()
             else:
                 can_call = limit["current_count"] < limit["limit_value"]
                 current_count = limit["current_count"]
+                reset_at_str = limit["reset_at"]
             
-            return {
+            result_dict = {
                 "can_call": can_call,
                 "current_count": current_count,
                 "limit_value": limit["limit_value"],
-                "reset_at": limit["reset_at"],
+                "reset_at": reset_at_str,
                 "remaining": max(0, limit["limit_value"] - current_count)
             }
+            
+            logger.info(f"Rate limit check for user {user_id}, type {limit_type}: {result_dict}")
+            return result_dict
         
         except Exception as e:
             logger.error(f"Error checking rate limit: {str(e)}")

@@ -10,7 +10,6 @@ import { AddSourceModal } from '../components/AddSourceModal'
 import apiClient from '../services/api'
 
 export function Sources() {
-  const navigate = useNavigate()
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

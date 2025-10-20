@@ -136,7 +136,22 @@ export const CredentialInput: React.FC<CredentialInputProps> = ({
       ) : (
         // Required credentials - show directly
         <div className="space-y-4">
-          {schema.oauth_url && (
+          {sourceType === 'twitter' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p className="text-sm text-amber-900 font-medium mb-2">
+                <Info className="inline h-4 w-4 mr-1" />
+                Twitter Authentication Options
+              </p>
+              <p className="text-xs text-amber-800 mb-2">
+                Choose one of the following authentication methods:
+              </p>
+              <ul className="text-xs text-amber-800 space-y-1 ml-4 list-disc">
+                <li><strong>Option 1 (Simpler):</strong> Provide only the Bearer Token field</li>
+                <li><strong>Option 2 (Full Access):</strong> Provide all 4 OAuth 1.0a fields (API Key, API Secret, Access Token, Access Token Secret)</li>
+              </ul>
+            </div>
+          )}
+          {schema.oauth_url && sourceType !== 'twitter' && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-blue-800">

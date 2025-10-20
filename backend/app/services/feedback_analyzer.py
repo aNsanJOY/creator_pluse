@@ -7,10 +7,9 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from supabase import Client
-from groq import Groq
 
-from app.core.config import settings
 from app.core.database import get_supabase
+from app.services.llm_wrapper import llm_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ class FeedbackAnalyzer:
     """Analyzes feedback and adjusts prompts for better draft generation"""
     
     def __init__(self):
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
         self.model = "openai/gpt-oss-20b"
         self.supabase: Optional[Client] = None
     
@@ -46,7 +44,7 @@ class FeedbackAnalyzer:
             cutoff_date = (datetime.now() - timedelta(days=days_back)).isoformat()
             
             feedback_result = self.supabase.table("feedback").select(
-                "*, newsletters(title, content, metadata)"
+                "*, newsletter_drafts(title, sections, metadata)"
             ).eq("user_id", user_id).gte("created_at", cutoff_date).execute()
             
             if not feedback_result.data:
@@ -71,7 +69,8 @@ class FeedbackAnalyzer:
                 positive_comments=comments_positive,
                 negative_comments=comments_negative,
                 thumbs_up_count=thumbs_up,
-                thumbs_down_count=thumbs_down
+                thumbs_down_count=thumbs_down,
+                user_id=user_id
             )
             
             return {
@@ -92,7 +91,8 @@ class FeedbackAnalyzer:
         positive_comments: List[str],
         negative_comments: List[str],
         thumbs_up_count: int,
-        thumbs_down_count: int
+        thumbs_down_count: int,
+        user_id: str
     ) -> Dict[str, Any]:
         """Use Groq to analyze feedback patterns"""
         
@@ -114,15 +114,24 @@ Provide a JSON response with:
 
 Keep the response concise and actionable."""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
+            # Call LLM via wrapper
+            result = await llm_wrapper.chat_completion(
                 messages=[
                     {"role": "system", "content": "You are a feedback analysis expert. Provide insights in JSON format."},
                     {"role": "user", "content": prompt}
                 ],
+                user_id=user_id,
+                service_name="feedback_analyzer",
+                model=self.model,
                 temperature=0.3,
-                max_tokens=1000
+                max_tokens=2000,
+                metadata={
+                    "positive_count": len(positive_comments),
+                    "negative_count": len(negative_comments)
+                }
             )
+            
+            response = result["response"]
             
             # Parse response
             import json

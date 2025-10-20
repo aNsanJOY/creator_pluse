@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer
 from supabase import Client
 from datetime import timedelta
@@ -22,6 +22,31 @@ from app.api.dependencies import get_current_user
 router = APIRouter()
 security = HTTPBearer()
 
+# Default preferences for new users
+DEFAULT_USER_PREFERENCES = {
+    "draft_schedule_time": "09:00",
+    "newsletter_frequency": "weekly",
+    "use_voice_profile": False,
+    "tone_preferences": {
+        "formality": "balanced",
+        "enthusiasm": "moderate",
+        "length_preference": "medium",
+        "use_emojis": True
+    },
+    "notification_preferences": {
+        "email_on_draft_ready": True,
+        "email_on_publish_success": True,
+        "email_on_errors": True,
+        "weekly_summary": False
+    },
+    "email_preferences": {
+        "default_subject_template": "{title} - Weekly Newsletter",
+        "include_preview_text": True,
+        "track_opens": False,
+        "track_clicks": False
+    }
+}
+
 
 @router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def signup(
@@ -30,7 +55,14 @@ async def signup(
 ):
     """
     Register a new user without email verification.
-    Creates user in database and returns JWT token.
+    Creates user in database with default preferences and returns JWT token.
+    
+    Default preferences include:
+    - Draft schedule time: 09:00
+    - Newsletter frequency: weekly
+    - Tone preferences: balanced formality, moderate enthusiasm
+    - Notification preferences: enabled for drafts and publishing
+    - Email preferences: default templates and tracking settings
     """
     try:
         # Check if user already exists
@@ -45,12 +77,13 @@ async def signup(
         # Hash password
         hashed_password = get_password_hash(user_data.password)
         
-        # Create user in database
+        # Create user in database with default preferences
         new_user = {
             "email": user_data.email,
             "full_name": user_data.full_name,
             "password_hash": hashed_password,
-            "is_active": True
+            "is_active": True,
+            "preferences": DEFAULT_USER_PREFERENCES
         }
         
         result = supabase.table("users").insert(new_user).execute()
@@ -62,10 +95,23 @@ async def signup(
             )
         
         created_user = result.data[0]
+        user_id = created_user["id"]
+        
+        # Initialize user crawl schedule
+        try:
+            supabase.table("user_crawl_schedule").insert({
+                "user_id": user_id,
+                "is_crawling": False,
+                "crawl_frequency_hours": 24  # Default: daily crawls
+            }).execute()
+            logger.info(f"Initialized crawl schedule for new user {user_id}")
+        except Exception as e:
+            # Don't fail signup if crawl schedule creation fails
+            logger.warning(f"Failed to create crawl schedule for user {user_id}: {str(e)}")
         
         # Generate JWT token
         access_token = create_access_token(
-            data={"sub": created_user["id"], "email": created_user["email"]}
+            data={"sub": user_id, "email": created_user["email"]}
         )
         
         return Token(access_token=access_token, token_type="bearer")
@@ -207,8 +253,8 @@ async def reset_password(
 
 @router.post("/reset-password/confirm")
 async def confirm_reset_password(
-    reset_token: str,
-    new_password: str,
+    reset_token: str = Query(..., description="Password reset token"),
+    new_password: str = Query(..., description="New password"),
     supabase: Client = Depends(get_supabase)
 ):
     """

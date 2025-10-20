@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from supabase import Client
-from typing import List, Dict, Any
 
 from app.core.database import get_supabase
 from app.api.dependencies import get_current_active_user
@@ -19,7 +18,7 @@ async def trigger_manual_crawl(
     Useful for testing or immediate content refresh.
     """
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
         user_id = current_user["id"]
         

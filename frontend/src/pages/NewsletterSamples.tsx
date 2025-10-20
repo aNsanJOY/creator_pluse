@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/Button'
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card'
 import { Navigation } from '../components/Navigation'
@@ -49,6 +50,7 @@ interface VoiceProfile {
 
 export function NewsletterSamples() {
   const navigate = useNavigate()
+  const { refreshUser } = useAuth()
   const [samples, setSamples] = useState<NewsletterSample[]>([])
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -179,6 +181,8 @@ export function NewsletterSamples() {
       setSuccess(result.message || 'Voice analysis completed successfully!')
       // Reload voice profile after analysis
       await loadVoiceProfile()
+      // Refresh global user object to enable "Use Voice Profile" switch
+      await refreshUser()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to analyze voice')
       console.error('Failed to analyze voice:', err)

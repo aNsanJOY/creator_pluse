@@ -77,6 +77,35 @@ class SourceValidator:
         Returns: (is_valid, error_message)
         """
         if source_type == SourceType.TWITTER:
+            # Validate credentials first
+            if not credentials:
+                return False, "X (Twitter) requires credentials. Provide either: (1) Bearer Token, or (2) All OAuth 1.0a credentials (api_key, api_secret, access_token, access_token_secret)"
+            
+            bearer_token = credentials.get('bearer_token')
+            api_key = credentials.get('api_key')
+            api_secret = credentials.get('api_secret')
+            access_token = credentials.get('access_token')
+            access_token_secret = credentials.get('access_token_secret')
+            
+            # Check if bearer_token is provided
+            has_bearer = bool(bearer_token)
+            
+            # Check if all OAuth 1.0a credentials are provided
+            has_oauth1 = all([api_key, api_secret, access_token, access_token_secret])
+            
+            if not has_bearer and not has_oauth1:
+                # Check if partial OAuth 1.0a credentials are provided
+                oauth1_fields = [api_key, api_secret, access_token, access_token_secret]
+                oauth1_field_names = ['api_key', 'api_secret', 'access_token', 'access_token_secret']
+                provided_oauth1 = [name for name, value in zip(oauth1_field_names, oauth1_fields) if value]
+                
+                if provided_oauth1:
+                    missing = [name for name, value in zip(oauth1_field_names, oauth1_fields) if not value]
+                    return False, f"Incomplete OAuth 1.0a credentials. Missing: {', '.join(missing)}. Either provide all OAuth 1.0a credentials or use Bearer Token instead."
+                else:
+                    return False, "X (Twitter) requires credentials. Provide either: (1) Bearer Token, or (2) All OAuth 1.0a credentials (api_key, api_secret, access_token, access_token_secret)"
+            
+            # Validate URL/handle if provided
             if not url:
                 return False, "Twitter handle or URL is required"
             

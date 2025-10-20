@@ -9,9 +9,8 @@ import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Any, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from supabase import Client
-import uuid
 
 from app.core.config import settings
 from app.core.database import get_supabase
@@ -236,6 +235,12 @@ class EmailService:
         logger.info(f"Sending newsletter {draft_id} to {len(recipients)} recipient(s)")
         
         try:
+            # Fetch user preferences
+            from app.services.preferences_service import PreferencesService
+            preferences_service = PreferencesService(self.supabase)
+            preferences = await preferences_service.get_preferences(user_id)
+            email_prefs = preferences.get("email_preferences", {})
+            
             # Check rate limit
             rate_limit = await self.check_rate_limit(user_id, len(recipients))
             if not rate_limit["can_send"]:
@@ -256,8 +261,18 @@ class EmailService:
             
             draft = result.data[0]
             
-            # Convert draft to HTML with unsubscribe link
-            html_content = self._draft_to_html(draft, user_id)
+            # Apply subject template from preferences if subject not provided or is just draft title
+            if not subject or subject == draft.get("title"):
+                template = email_prefs.get("default_subject_template", "{title} - Newsletter")
+                subject = template.replace("{title}", draft.get("title", "Newsletter"))
+                logger.info(f"Applied subject template: {subject}")
+            
+            # Get tracking preferences
+            track_opens = email_prefs.get("track_opens", False)
+            track_clicks = email_prefs.get("track_clicks", False)
+            
+            # Convert draft to HTML with unsubscribe link and tracking
+            html_content = self._draft_to_html(draft, user_id, track_opens=track_opens, track_clicks=track_clicks)
             text_content = self._draft_to_text(draft, user_id)
             
             # Filter out unsubscribed recipients
@@ -373,6 +388,16 @@ class EmailService:
         self.initialize()
         
         try:
+            # Check notification preferences
+            from app.services.preferences_service import PreferencesService
+            preferences_service = PreferencesService(self.supabase)
+            preferences = await preferences_service.get_preferences(user_id)
+            
+            notification_prefs = preferences.get("notification_preferences", {})
+            if not notification_prefs.get("email_on_draft_ready", True):
+                logger.info(f"Draft notification disabled for user {user_id}")
+                return False
+            
             # Get draft
             result = self.supabase.table("newsletter_drafts").select("*").eq(
                 "id", draft_id
@@ -441,6 +466,101 @@ You can review, edit, and send your newsletter from the CreatorPulse dashboard.
             logger.error(f"Error sending draft notification: {str(e)}")
             return False
     
+    async def send_password_reset_email(
+        self,
+        user_email: str,
+        reset_token: str
+    ) -> bool:
+        """
+        Send password reset email to user
+        
+        Args:
+            user_email: User's email address
+            reset_token: Password reset token
+        
+        Returns:
+            Success status
+        """
+        self.initialize()
+        
+        try:
+            # Create reset URL
+            reset_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+            
+            subject = "Reset Your CreatorPulse Password"
+            
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Reset Your Password</title>
+            </head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background-color: #F9FAFB; padding: 40px; border-radius: 8px; text-align: center;">
+                    <h1 style="color: #1F2937; margin-bottom: 20px;">Reset Your Password</h1>
+                    
+                    <p style="font-size: 16px; margin-bottom: 30px;">
+                        We received a request to reset your password for your CreatorPulse account. 
+                        Click the button below to create a new password:
+                    </p>
+                    
+                    <a href="{reset_url}" style="background-color: #4F46E5; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+                        Reset Password
+                    </a>
+                    
+                    <p style="color: #6B7280; font-size: 14px; margin-top: 30px;">
+                        This link will expire in 1 hour for security reasons.
+                    </p>
+                    
+                    <p style="color: #6B7280; font-size: 14px; margin-top: 20px;">
+                        If you didn't request a password reset, please ignore this email. 
+                        Your password will remain unchanged.
+                    </p>
+                    
+                    <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
+                    
+                    <p style="color: #6B7280; font-size: 12px;">
+                        If the button doesn't work, copy and paste this link into your browser:<br>
+                        <a href="{reset_url}" style="color: #4F46E5; word-break: break-all;">{reset_url}</a>
+                    </p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            text_content = f"""
+Reset Your CreatorPulse Password
+
+We received a request to reset your password for your CreatorPulse account. 
+Click the link below to create a new password:
+
+{reset_url}
+
+This link will expire in 1 hour for security reasons.
+
+If you didn't request a password reset, please ignore this email. 
+Your password will remain unchanged.
+
+---
+CreatorPulse Team
+            """
+            
+            self._send_email(
+                to_email=user_email,
+                subject=subject,
+                html_content=html_content,
+                text_content=text_content
+            )
+            
+            logger.info(f"Password reset email sent to {user_email}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending password reset email: {str(e)}")
+            return False
+    
     def _send_email(
         self,
         to_email: str,
@@ -483,8 +603,25 @@ You can review, edit, and send your newsletter from the CreatorPulse dashboard.
             logger.error(f"SMTP error sending to {to_email}: {str(e)}")
             raise
     
-    def _draft_to_html(self, draft: Dict[str, Any], user_id: Optional[str] = None) -> str:
-        """Convert draft to HTML email format with unsubscribe link"""
+    def _draft_to_html(
+        self, 
+        draft: Dict[str, Any], 
+        user_id: Optional[str] = None,
+        track_opens: bool = False,
+        track_clicks: bool = False
+    ) -> str:
+        """
+        Convert draft to HTML email format with unsubscribe link and optional tracking
+        
+        Args:
+            draft: Draft dictionary
+            user_id: User ID
+            track_opens: Whether to add open tracking pixel
+            track_clicks: Whether to wrap links with click tracking
+        
+        Returns:
+            HTML email content
+        """
         
         sections_html = ""
         for section in draft.get("sections", []):
@@ -496,6 +633,17 @@ You can review, edit, and send your newsletter from the CreatorPulse dashboard.
             content_html = content.replace("\n\n", "</p><p>")
             content_html = content_html.replace("**", "<strong>").replace("**", "</strong>")
             content_html = content_html.replace("*", "<em>").replace("*", "</em>")
+            
+            # Wrap links with click tracking if enabled
+            if track_clicks:
+                import re
+                # Find all URLs in the content
+                url_pattern = r'(https?://[^\s<>"]+)'
+                content_html = re.sub(
+                    url_pattern,
+                    lambda m: f'<a href="{settings.BACKEND_URL}/api/email/track-click?url={m.group(1)}&user_id={user_id}&draft_id={draft.get("id")}">{m.group(1)}</a>',
+                    content_html
+                )
             
             if section_type == "intro":
                 sections_html += f"""
@@ -517,6 +665,11 @@ You can review, edit, and send your newsletter from the CreatorPulse dashboard.
                 </div>
                 """
         
+        # Add tracking pixel if enabled
+        tracking_pixel = ""
+        if track_opens and user_id:
+            tracking_pixel = f'<img src="{settings.BACKEND_URL}/api/email/track-open?user_id={user_id}&draft_id={draft.get("id")}&recipient={{{{email}}}}" width="1" height="1" style="display:none;" />'
+        
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -533,7 +686,7 @@ You can review, edit, and send your newsletter from the CreatorPulse dashboard.
                 <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #6B7280; font-size: 14px;">
                     <p>Sent with CreatorPulse</p>
                     <p>
-                        <a href="{settings.BACKEND_URL}/api/email/unsubscribe?email={{email}}&token={{token}}" 
+                        <a href="{settings.BACKEND_URL}/api/email/unsubscribe?email={{{{email}}}}&token={{{{token}}}}" 
                            style="color: #4F46E5; text-decoration: none;">Unsubscribe</a>
                     </p>
                     <p style="font-size: 12px; margin-top: 10px;">
@@ -541,6 +694,7 @@ You can review, edit, and send your newsletter from the CreatorPulse dashboard.
                     </p>
                 </div>
             </div>
+            {tracking_pixel}
         </body>
         </html>
         """

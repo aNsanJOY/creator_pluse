@@ -504,3 +504,153 @@ async def check_unsubscribed(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to check unsubscribe status: {str(e)}"
         )
+
+
+# Email Tracking Endpoints
+
+@router.get("/track-open")
+async def track_email_open(
+    user_id: str,
+    draft_id: str,
+    recipient: str,
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Track email open event via 1x1 pixel
+    
+    This endpoint is called when the tracking pixel in an email is loaded.
+    Returns a transparent 1x1 pixel image.
+    """
+    try:
+        # Log the open event
+        supabase.table("email_tracking_events").insert({
+            "user_id": user_id,
+            "draft_id": draft_id,
+            "recipient_email": recipient.lower(),
+            "event_type": "open",
+            "event_data": {},
+            "tracked_at": datetime.now().isoformat()
+        }).execute()
+        
+        # Return 1x1 transparent pixel
+        from fastapi.responses import Response
+        pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+        return Response(content=pixel, media_type="image/gif")
+    
+    except Exception as e:
+        # Silently fail - don't break email rendering
+        from fastapi.responses import Response
+        pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+        return Response(content=pixel, media_type="image/gif")
+
+
+@router.get("/track-click")
+async def track_email_click(
+    url: str,
+    user_id: str,
+    draft_id: str,
+    request: Request,
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Track email link click event and redirect to original URL
+    
+    This endpoint is called when a tracked link in an email is clicked.
+    Logs the click event and redirects to the original URL.
+    """
+    try:
+        # Get recipient email from referer or other headers if available
+        recipient_email = request.headers.get("X-Recipient-Email", "unknown")
+        
+        # Log the click event
+        supabase.table("email_tracking_events").insert({
+            "user_id": user_id,
+            "draft_id": draft_id,
+            "recipient_email": recipient_email,
+            "event_type": "click",
+            "event_data": {"url": url},
+            "tracked_at": datetime.now().isoformat()
+        }).execute()
+        
+        # Redirect to original URL
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=url, status_code=302)
+    
+    except Exception as e:
+        # On error, still redirect to the URL
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/tracking-stats/{draft_id}")
+async def get_tracking_stats(
+    draft_id: str,
+    current_user: dict = Depends(get_current_active_user),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Get tracking statistics for a specific draft
+    
+    Returns open and click counts, unique recipients, and engagement metrics.
+    """
+    try:
+        user_id = current_user["id"]
+        
+        # Verify draft belongs to user
+        draft_result = supabase.table("newsletter_drafts").select("id").eq(
+            "id", draft_id
+        ).eq("user_id", user_id).execute()
+        
+        if not draft_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Draft not found"
+            )
+        
+        # Get all tracking events for this draft
+        events_result = supabase.table("email_tracking_events").select("*").eq(
+            "draft_id", draft_id
+        ).eq("user_id", user_id).execute()
+        
+        events = events_result.data or []
+        
+        # Calculate statistics
+        opens = [e for e in events if e["event_type"] == "open"]
+        clicks = [e for e in events if e["event_type"] == "click"]
+        
+        unique_opens = len(set(e["recipient_email"] for e in opens))
+        unique_clicks = len(set(e["recipient_email"] for e in clicks))
+        
+        # Get total recipients from draft metadata
+        draft_full = supabase.table("newsletter_drafts").select("metadata").eq(
+            "id", draft_id
+        ).execute()
+        
+        total_recipients = 0
+        if draft_full.data:
+            metadata = draft_full.data[0].get("metadata", {})
+            email_stats = metadata.get("email_stats", {})
+            total_recipients = email_stats.get("sent_count", 0)
+        
+        return {
+            "success": True,
+            "draft_id": draft_id,
+            "stats": {
+                "total_recipients": total_recipients,
+                "total_opens": len(opens),
+                "unique_opens": unique_opens,
+                "total_clicks": len(clicks),
+                "unique_clicks": unique_clicks,
+                "open_rate": round(unique_opens / total_recipients * 100, 2) if total_recipients > 0 else 0,
+                "click_rate": round(unique_clicks / total_recipients * 100, 2) if total_recipients > 0 else 0,
+                "click_through_rate": round(unique_clicks / unique_opens * 100, 2) if unique_opens > 0 else 0
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get tracking stats: {str(e)}"
+        )
