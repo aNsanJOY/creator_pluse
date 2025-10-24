@@ -227,7 +227,7 @@ class DraftGenerator:
         """
         try:
             # Create base prompt with voice profile or tone preferences
-            if voice_profile:
+            if preferences.pop("use_voice_profile", False) and voice_profile:
                 preferences.pop("tone_preferences")
                 base_prompt = self._create_draft_prompt(
                     trends, summaries, voice_profile, preferences
@@ -241,7 +241,6 @@ class DraftGenerator:
             prompt = feedback_analyzer.generate_adjusted_prompt(
                 base_prompt=base_prompt,
                 feedback_insights=feedback_insights,
-                voice_profile=voice_profile,
             )
 
             # Call LLM via wrapper
@@ -278,7 +277,7 @@ class DraftGenerator:
                 draft_data = self._create_fallback_structure(trends, summaries)
 
             # Add metadata
-            draft_data["generated_at"] = datetime.now().isoformat()
+            draft_data["generated_at"] = datetime.now((timezone.utc)).isoformat()
             draft_data["model_used"] = self.model
             draft_data["voice_profile_used"] = voice_profile is not None
 
@@ -576,7 +575,7 @@ Provide ONLY the JSON object, no additional text."""
             )
 
             # Add summaries as sections
-            for i, summary in enumerate(summaries[:5], 1):
+            for i, summary in enumerate(summaries[:10], 1):
                 if "error" not in summary:
                     sections.append(
                         {
@@ -651,7 +650,7 @@ Provide ONLY the JSON object, no additional text."""
                 "no_trends": True,
                 "no_content": not has_content,
             },
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now((timezone.utc)).isoformat(),
         }
 
         if store:
@@ -675,7 +674,7 @@ Provide ONLY the JSON object, no additional text."""
                     "model_used": draft_data.get("model_used", self.model),
                     "voice_profile_used": draft_data.get("voice_profile_used", False),
                 },
-                "generated_at": datetime.now().isoformat(),
+                "generated_at": datetime.now((timezone.utc)).isoformat(),
                 "email_sent": False,
             }
 

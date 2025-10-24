@@ -160,7 +160,6 @@ Keep the response concise and actionable."""
         self,
         base_prompt: str,
         feedback_insights: Dict[str, Any],
-        voice_profile: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Adjust the draft generation prompt based on feedback insights

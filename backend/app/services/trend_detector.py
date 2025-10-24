@@ -196,9 +196,26 @@ class TrendDetector:
                 result = json.loads(json_match.group())
                 topics = result.get("topics", [])
                 
-                # Enrich topics with content references
+                # Create a mapping of content IDs for validation
+                valid_content_ids = {str(item["id"]) for item in content_summaries}
+                
+                # Enrich topics with content references and validate IDs
                 for topic in topics:
-                    topic["content_ids"] = topic.get("content_ids", [])
+                    raw_ids = topic.get("content_ids", [])
+                    # Filter to only include valid UUIDs that exist in our content
+                    validated_ids = [
+                        str(cid) for cid in raw_ids 
+                        if str(cid) in valid_content_ids
+                    ]
+                    
+                    # Log if any IDs were filtered out
+                    invalid_ids = [str(cid) for cid in raw_ids if str(cid) not in valid_content_ids]
+                    if invalid_ids:
+                        logger.warning(
+                            f"Filtered out invalid content IDs for topic '{topic.get('name')}': {invalid_ids}"
+                        )
+                    
+                    topic["content_ids"] = validated_ids
                     topic["extracted_at"] = datetime.now().isoformat()
                 
                 return topics
@@ -231,8 +248,10 @@ CONTENT ITEMS:
 Identify the top 10-15 trending topics/themes across this content. For each topic:
 1. Provide a clear, concise topic name
 2. Give a brief description
-3. List the content IDs that discuss this topic
+3. List the EXACT content IDs (from the [ID: ...] tags above) that discuss this topic
 4. Estimate the topic's relevance (how important/interesting it is)
+
+IMPORTANT: Use the EXACT ID values shown in the [ID: ...] tags above. Do not modify or simplify them.
 
 Provide your analysis in the following JSON format:
 
@@ -241,7 +260,7 @@ Provide your analysis in the following JSON format:
     {{
       "name": "Topic Name",
       "description": "Brief description of the topic",
-      "content_ids": ["id1", "id2", "id3"],
+      "content_ids": ["exact-id-from-above", "another-exact-id"],
       "keywords": ["keyword1", "keyword2"],
       "category": "technology/business/science/culture/etc",
       "relevance": 0.0-1.0

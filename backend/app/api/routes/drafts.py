@@ -214,7 +214,7 @@ async def generate_draft(
                         "model_used": draft_content.get("model_used", draft_generator.model),
                         "voice_profile_used": draft_content.get("voice_profile_used", False)
                     },
-                    "generated_at": datetime.now().isoformat()
+                    "generated_at": datetime.now((timezone.utc)).isoformat()
                 }).eq("id", draft_id).execute()
                 
                 # Log successful generation
@@ -593,7 +593,7 @@ async def regenerate_draft(
                         "voice_profile_used": draft_content.get("voice_profile_used", False),
                         "regenerated_from": draft_id
                     },
-                    "generated_at": datetime.now().isoformat()
+                    "generated_at": datetime.now((timezone.utc)).isoformat()
                 }).eq("id", new_draft_id).execute()
                 
                 # Delete old draft

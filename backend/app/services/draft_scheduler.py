@@ -4,7 +4,7 @@ Handles scheduled draft generation and delivery
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -342,7 +342,7 @@ class DraftScheduler:
         """
         try:
             self.supabase.table("draft_generation_logs").insert({
-                "generated_at": datetime.now().isoformat(),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
                 "success_count": success_count,
                 "error_count": error_count,
                 "total_count": success_count + error_count
